@@ -1,7 +1,7 @@
 import {Pool} from 'pg';
 import {readFileSync,readdirSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {createHash} from 'node:crypto';
+import {createHash,randomBytes,scryptSync} from 'node:crypto';
 
 function connectionOptions(config={}){
  const connectionString=config.connectionString||process.env.DATABASE_URL;
@@ -40,6 +40,34 @@ function convertPlaceholders(query){
  return out;
 }
 
+
+function hashPassword(password){
+ const salt=randomBytes(16);
+ const digest=scryptSync(password,salt,32,{N:32768,r:8,p:3,maxmem:48*1024*1024});
+ return `scrypt-v1$${salt.toString('hex')}$${digest.toString('hex')}`;
+}
+
+async function seedAdmin(client){
+ const email=(process.env.SEED_ADMIN_EMAIL||'').trim().toLowerCase();
+ const password=process.env.SEED_ADMIN_PASSWORD||'';
+ if(!email&&!password)return;
+ if(!email||!password)throw new Error('Set both SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD, or neither.');
+ if(password.length<7||password.length>128)throw new Error('SEED_ADMIN_PASSWORD must be 7-128 characters.');
+ const fullName=(process.env.SEED_ADMIN_NAME||'Admin').trim()||'Admin';
+ const id=(process.env.SEED_ADMIN_ID||`seed-admin-${email.replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}`).slice(0,100);
+ await client.query(`INSERT INTO users (
+  id,email,full_name,role,status,password_hash,temporary_password,source_name,created_at,updated_at
+ ) VALUES ($1,$2,$3,'admin','active',$4,NULL,'recipegenerator',NOW(),NOW())
+ ON CONFLICT (email) DO UPDATE SET
+  full_name=EXCLUDED.full_name,
+  role='admin',
+  status='active',
+  password_hash=EXCLUDED.password_hash,
+  temporary_password=NULL,
+  source_name=EXCLUDED.source_name,
+  updated_at=NOW()`,[id,email,fullName,hashPassword(password)]);
+}
+
 class Statement{
  constructor(database,query,parameters=[]){this.database=database;this.query=query;this.parameters=parameters;}
  bind(...parameters){return new Statement(this.database,this.query,parameters);}
@@ -65,6 +93,7 @@ class PostgresDatabase{
    await client.query(sql);
    await client.query('INSERT INTO studio_migrations (name,checksum) VALUES ($1,$2)',[file,checksum]);
   }
+  await seedAdmin(client);
   await client.query('COMMIT');
  }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}finally{client.release();}}
  async close(){await this.ready;await this.pool.end();}

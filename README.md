@@ -46,7 +46,7 @@ npm run build:node
 npm run start:node
 ```
 
-The Node runtime applies `postgres/*.sql` migrations at startup. For Docker, set `APP_ORIGIN` and `DATABASE_URL`.
+The Node runtime applies `postgres/*.sql` migrations at startup. For Docker, set `APP_ORIGIN` and `DATABASE_URL`. To seed an admin account during startup, set `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, and optionally `SEED_ADMIN_NAME`; the password is hashed before storage and should be supplied only as a deployment secret.
 
 ## Verification
 

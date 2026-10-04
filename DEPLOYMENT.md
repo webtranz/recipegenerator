@@ -11,6 +11,7 @@ Recipe Studio runs on Node.js 24 with PostgreSQL. The Docker image includes the 
   - `APP_ORIGIN=https://your-recipe-domain.example`
   - `DATABASE_URL=postgres://user:password@host:5432/database`
 - Optional environment: `PGSSLMODE=require` when the PostgreSQL provider requires TLS.
+- Optional seed admin environment: `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, and `SEED_ADMIN_NAME`. Store the password as a deployment secret, not in Git.
 
 Deploy, open the application URL, and select **Create first Admin**. Admins manage projects and users; Chefs can create recipes and menus only within their assigned project/warehouse.
 

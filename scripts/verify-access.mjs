@@ -17,6 +17,12 @@ assert.match(sql,/warehouse_inventory[\s\S]*UNIQUE \(warehouse_id, ingredient_id
 assert.match(sql,/recipe_ingredient_lines[\s\S]*REFERENCES recipe_versions\(recipe_version_id\)[\s\S]*REFERENCES ingredients\(ingredient_id\)/,'recipe lines must connect recipe versions to ingredients');
 assert.match(sql,/menu_plan_lines[\s\S]*REFERENCES menu_plans\(menu_plan_id\)[\s\S]*REFERENCES recipe_versions\(recipe_version_id\)/,'menu lines must connect menu plans to recipe versions');
 
+
+const runtimeSql=readFileSync('runtime/postgres.mjs','utf8');
+assert.match(runtimeSql,/SEED_ADMIN_EMAIL/,'runtime should support seed admin email');
+assert.match(runtimeSql,/SEED_ADMIN_PASSWORD/,'runtime should support seed admin password from environment');
+assert.doesNotMatch(runtimeSql,/SEED_ADMIN_PASSWORD\s*[:=]\s*['"]/,'seed admin password must come from the environment, not source code');
+
 const appFiles=['lib/access.ts','lib/data-service.ts','lib/session.ts','lib/first-admin.ts'];
 for(const file of appFiles){
  const text=readFileSync(file,'utf8');
