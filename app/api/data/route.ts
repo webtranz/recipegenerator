@@ -1,28 +1,8 @@
-import { env } from 'cloudflare:workers';
-import { z } from 'zod';
-import { CATEGORIES, UNITS, validateRecipe } from '@/lib/food';
+import {actor,db,json,failure,checkOrigin,body} from '@/lib/server-context';
+import {requireSite} from '@/lib/access';
+import {readData,writeData,deleteData} from '@/lib/data-service';
 export const dynamic='force-dynamic';
-const string=z.string().max(10000), name=z.string().trim().min(1).max(200), num=z.number().finite().nonnegative();
-const ingredient=z.object({name,item_code:string,quantity:num.positive(),unit:z.enum(UNITS),source:string,original_servings:num.positive(),processing:z.boolean()});
-const recipe=z.object({id:name,name,recipe_code:name,description:string,recipe_type:name,cuisine_type:z.enum(['general','philippines']),category:z.string().refine(s=>CATEGORIES.includes(s)),servings:num.positive(),portion_size_grams:num.positive(),ingredients:z.array(ingredient).max(300),instructions:string,prep_time_minutes:num,cook_time_minutes:num,allergens:z.array(name).max(50),site_scope:z.enum(['all','specific']),site_ids:z.array(name).max(100),site_names:z.array(name).max(100),image_url:string,is_active:z.boolean()});
-const inventory=z.object({id:name,item_code:name,name,unit:z.enum(UNITS),cost:num.nullable(),category:name,allergens:z.array(name).max(50)});
-const menu=z.object({id:name,code:name,name,target:num.positive().max(100),items:z.array(z.object({recipe_id:name,price:num,portions:num.positive(),sold:num.nullable()})).min(1).max(200),columns:z.array(z.object({header:name,field:string})).max(30).optional()});
-function db(){if(!env.DB)throw Error('Database unavailable');return env.DB;}
-function json(value:unknown,status=200){return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});}
-function owner(request:Request){return request.headers.get('oai-authenticated-user-id');}
-function failure(e:unknown){console.error('Recipe Studio data error',e);if(e instanceof z.ZodError)return json({error:'Invalid data: '+e.issues.map(i=>i.path.join('.')+' '+i.message).join('; ')},400);if(e instanceof Error&&e.message.includes('UNIQUE'))return json({error:'That code already exists. Use a unique code.'},409);return json({error:'Could not save or load data. Your edits are still on screen. Please retry.'},503);}
-export async function GET(req:Request){const user=owner(req);if(!user)return json({error:'Sign in to access your workspace.'},401);try{const data=await db().prepare('SELECT kind, payload FROM records WHERE owner = ? ORDER BY updated DESC').bind(user).all<{kind:string;payload:string}>();const result:{inventory:unknown[];recipes:unknown[];menus:unknown[]}={inventory:[],recipes:[],menus:[]};for(const row of data.results){const key=row.kind==='recipe'?'recipes':row.kind==='menu'?'menus':'inventory';result[key].push(JSON.parse(row.payload));}return json(result);}catch(e){return failure(e);}}
-export async function POST(req:Request){const user=owner(req);if(!user)return json({error:'Sign in to save your workspace.'},401);if(req.headers.get('origin')&&req.headers.get('origin')!==new URL(req.url).origin)return json({error:'Invalid request origin.'},403);
-  try{const raw=await req.text();if(raw.length>1500000)return json({error:'Import up to 100 inventory items per batch.'},413);const body=JSON.parse(raw);const now=new Date().toISOString();
-    if(body.kind==='inventory'){const items=z.array(inventory).min(1).max(100).parse(body.items);await db().batch(items.map(i=>db().prepare('INSERT INTO records (owner,id,kind,code,payload,updated) VALUES (?,?,?,?,?,?) ON CONFLICT(owner,id) DO UPDATE SET code=excluded.code,payload=excluded.payload,updated=excluded.updated').bind(user,'inv:'+i.item_code,'inventory',i.item_code,JSON.stringify({...i,id:'inv:'+i.item_code}),now)));return json({ok:true});}
-    if(body.kind==='recipe'){const r=recipe.parse(body.record);const errors=validateRecipe(r);if(errors.length)return json({error:errors.join(' ')},400);await db().prepare('INSERT INTO records (owner,id,kind,code,payload,updated) VALUES (?,?,?,?,?,?) ON CONFLICT(owner,id) DO UPDATE SET code=excluded.code,payload=excluded.payload,updated=excluded.updated').bind(user,'recipe:'+r.id,'recipe',r.recipe_code,JSON.stringify(r),now).run();return json({ok:true});}
-    if(body.kind==='menu'){const m=menu.parse(body.record);const existing=await db().prepare('SELECT payload FROM records WHERE owner = ? AND kind = ?').bind(user,'recipe').all<{payload:string}>();const ids=new Set(existing.results.map(r=>JSON.parse(r.payload).id));if(m.items.some(i=>!ids.has(i.recipe_id)))return json({error:'Save all menu recipes before saving the menu.'},400);await db().prepare('INSERT INTO records (owner,id,kind,code,payload,updated) VALUES (?,?,?,?,?,?) ON CONFLICT(owner,id) DO UPDATE SET code=excluded.code,payload=excluded.payload,updated=excluded.updated').bind(user,'menu:'+m.id,'menu',m.code,JSON.stringify(m),now).run();return json({ok:true});}
-    return json({error:'Unknown record type.'},400);
-  }catch(e){if(e instanceof SyntaxError)return json({error:'Invalid JSON request.'},400);return failure(e);}
-}
-export async function DELETE(req:Request){const user=owner(req);if(!user)return json({error:'Sign in to edit your workspace.'},401);if(req.headers.get('origin')&&req.headers.get('origin')!==new URL(req.url).origin)return json({error:'Invalid request origin.'},403);try{const kind=new URL(req.url).searchParams.get('kind'),id=new URL(req.url).searchParams.get('id');if(!['inventory','recipe','menu'].includes(kind||'')||!id)return json({error:'Invalid record.'},400);
-  const records=await db().prepare('SELECT kind,payload FROM records WHERE owner=?').bind(user).all<{kind:string;payload:string}>();
-  if(kind==='inventory'&&records.results.some(r=>r.kind==='recipe'&&JSON.parse(r.payload).ingredients.some((i:{item_code:string})=>'inv:'+i.item_code===id)))return json({error:'This ingredient is used by a saved recipe. Remap the recipe first.'},409);
-  if(kind==='recipe'&&records.results.some(r=>r.kind==='menu'&&JSON.parse(r.payload).items.some((i:{recipe_id:string})=>i.recipe_id===id)))return json({error:'This recipe is used by a menu. Remove it from the menu first.'},409);
-  await db().prepare('DELETE FROM records WHERE owner=? AND id=? AND kind=?').bind(user,kind==='inventory'?id:kind+':'+id,kind).run();return json({ok:true});
-}catch(e){return failure(e);}}
+async function scope(req:Request){return requireSite(db(),await actor(req),new URL(req.url).searchParams.get('site'));}
+export async function GET(req:Request){try{return json(await readData(db(),await scope(req)));}catch(e){return failure(e);}}
+export async function POST(req:Request){try{checkOrigin(req);await writeData(db(),await scope(req),await body(req));return json({ok:true});}catch(e){return failure(e);}}
+export async function DELETE(req:Request){try{checkOrigin(req);const q=new URL(req.url).searchParams;await deleteData(db(),await scope(req),q.get('kind'),q.get('id'));return json({ok:true});}catch(e){return failure(e);}}

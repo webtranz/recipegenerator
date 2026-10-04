@@ -4,7 +4,7 @@ export const HEADERS = 'name,recipe_code,description,recipe_type,cuisine_type,ca
 export type Inventory = {id:string;item_code:string;name:string;unit:string;cost:number|null;category:string;allergens:string[]};
 export type Ingredient = {name:string;item_code:string;quantity:number;unit:string;source:string;original_servings:number;processing:boolean};
 export type Recipe = {id:string;name:string;recipe_code:string;description:string;recipe_type:string;cuisine_type:string;category:string;servings:number;portion_size_grams:number;ingredients:Ingredient[];instructions:string;prep_time_minutes:number;cook_time_minutes:number;allergens:string[];site_scope:string;site_ids:string[];site_names:string[];image_url:string;is_active:boolean};
-export type Menu = {id:string;code:string;name:string;target:number;items:{recipe_id:string;price:number;portions:number;sold:number|null}[];columns?:{header:string;field:string}[]};
+export type Menu = {id:string;code:string;name:string;target:number;store_id?:string;items:{recipe_id:string;price:number;portions:number;sold:number|null}[];columns?:{header:string;field:string}[]};
 export const normalize = (s:string) => s.trim().toLocaleLowerCase().replace(/\s+/g,' ');
 export const round = (n:number) => Math.round((n+Number.EPSILON)*1e6)/1e6;
 export function csv(rows:unknown[][]){return rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');}

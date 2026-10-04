@@ -8,11 +8,17 @@ Inventory-linked recipe and menu generation with Food Pro CSV exports.
 - Generate editable recipes from eight built-in patterns or create recipes from scratch.
 - Scale batch quantities while retaining source quantities and original serving counts.
 - Match exact inventory names automatically or select an inventory item manually. Unmatched ingredients retain blank codes.
-- Save recipes, inventory, and menus in Cloudflare D1, scoped to the authenticated user.
+- Save recipes, inventory, and menus in Cloudflare D1, shared within each site, with server-enforced site access.
 - Build menus, calculate ingredient cost and contribution margins, and classify dishes when sales data is available.
 - Export `recipes.csv` with the specified Food Pro headers and JSON cells.
 - Export `missing-ingredients-to-add-first.csv` for unmatched ingredients.
 - Load a menu CSV template and map its headers to menu fields.
+
+## Administration
+
+Administrators create areas, projects, sites, stores, and user profiles. The hierarchy is Area → Project → Site → Store. Administrators manage every site; other users can access only assigned active sites. Use the destination Food Pro site identifier as the site code. Inventory, recipes, menus, and exports use the selected site. Existing personal records remain preserved until an administrator assigns them to a site.
+
+Users sign in with ChatGPT. A profile must match their sign-in email, and they also need access through the hosted app Share settings. Creating a profile does not send an invitation or change sharing. Configure STUDIO_OWNER_EMAIL as a runtime secret for the initial administrator; it is never inferred from the first visitor.
 
 ## Current scope
 
@@ -26,10 +32,11 @@ Requires Node.js 22.13 or later and npm. The app uses React, Vinext, and Cloudfl
 npm run install:ci
 npm run build
 node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_old_namora.sql
+node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0001_special_gladiator.sql
 npm run dev
 ```
 
-Apply the migration once to a fresh local database. Use the preview URL printed by the development server. Local preview supplies a development sign-in flow; production uses the Sites authentication boundary. Do not expose the development server publicly.
+Apply each migration once, in order, to a fresh local database. For local preview, create an ignored .dev.vars file containing STUDIO_OWNER_EMAIL="seedy@sites.test". Use the preview URL printed by the development server. Local preview supplies a development sign-in flow; production uses the Sites authentication boundary. Do not expose the development server publicly.
 
 The `.openai/hosting.json` manifest identifies the existing private Sites deployment and its logical D1 binding. GitHub hosts the source code; pushing here does not automatically deploy the app. Runtime data, dependencies, credentials, and build output are excluded from Git.
 
@@ -38,6 +45,7 @@ The `.openai/hosting.json` manifest identifies the existing private Sites deploy
 ```sh
 npx tsc --noEmit
 node scripts/verify-food.mjs
+node scripts/verify-access.mjs
 ```
 
 With the local development server running at `http://127.0.0.1:5173`:
@@ -46,7 +54,7 @@ With the local development server running at `http://127.0.0.1:5173`:
 node scripts/verify-api.mjs
 ```
 
-The API verification creates and removes only its own `QA-*` records in the local preview database.
+The API verification creates and removes its own operational records and deactivates its QA hierarchy in the local preview database.
 
 ## Main files
 
@@ -55,3 +63,4 @@ The API verification creates and removes only its own `QA-*` records in the loca
 - `app/api/data/route.ts`: authenticated persistence endpoints
 - `lib/food.ts`: recipe patterns, mapping, costing, CSV parsing and export
 - `db/schema.ts` and `drizzle/`: database schema and migrations
+
