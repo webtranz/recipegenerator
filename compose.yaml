@@ -3,12 +3,8 @@ services:
     build: .
     environment:
       APP_ORIGIN: ${APP_ORIGIN:?Set APP_ORIGIN to the public URL}
-      DATABASE_PATH: /data/recipe-studio.sqlite
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to the PostgreSQL connection string}
     ports:
       - "127.0.0.1:3000:3000"
-    volumes:
-      - recipe_data:/data
     restart: unless-stopped
     stop_grace_period: 30s
-volumes:
-  recipe_data:

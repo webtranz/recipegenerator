@@ -4,48 +4,49 @@ Inventory-linked recipe and menu generation with Food Pro CSV exports.
 
 ## Features
 
-- Import real inventory CSV files with item codes, exact names, units, costs, and allergen declarations.
-- Generate editable recipes from eight built-in patterns or create recipes from scratch.
-- Scale batch quantities while retaining source quantities and original serving counts.
-- Match exact inventory names automatically or select an inventory item manually. Unmatched ingredients retain blank codes.
-- Save recipes, inventory, and menus in Cloudflare D1, shared within each project, with server-enforced project access.
-- Build menus, calculate ingredient cost and contribution margins, and classify dishes when sales data is available.
-- Export `recipes.csv` with the specified Food Pro headers and JSON cells.
-- Export `missing-ingredients-to-add-first.csv` for unmatched ingredients.
-- Load a menu CSV template and map its headers to menu fields.
+- Import real inventory CSV files with item codes, exact names, units, costs, categories, and allergens.
+- Store inventory, ingredients, recipes, menus, locations/projects, users, roles, and permissions in normalized PostgreSQL tables copied from the matching FoodProLive schema.
+- Generate editable recipes from built-in patterns or create recipes from scratch.
+- Scale batch quantities while retaining source quantities and original serving counts in the app flow.
+- Build menus, calculate ingredient cost and contribution margins, and export Food Pro CSV files.
+- Enforce project access on all API requests. In this smaller app, the project selector maps to FoodProLive `warehouses`, under the FoodProLive `areas -> projects -> warehouses` hierarchy.
 
 ## Administration
 
-The application has Projects only and exactly two roles: **Admin** and **Chef**. Admins manage every project, user, and inventory item. Each Chef is assigned to exactly one project and can create, edit, and delete that project's recipes and menus, view inventory, and export files. All API requests enforce these permissions. The previous area/site/store setup screens are removed.
+The application has two app roles: **Admin** and **Chef**. They are stored in FoodProLive-compatible `users`, `user_site_access`, `role_profiles`, and `role_profile_permissions` tables. Admins manage projects, users, and inventory. Chefs are assigned to one project/warehouse and can create recipes and menus there.
 
-Users sign in with a username and password. Admins create accounts and issue temporary passwords; users must replace them before accessing data. Passwords use scrypt (N=32768, r=8, p=3), random salts, and 7–128-character passphrases. Sessions use hashed random tokens and HttpOnly, SameSite=Strict cookies (Secure on HTTPS), expire after eight hours, and are invalidated after account or permission changes. Login attempts are throttled in D1. Password recovery is an admin-issued temporary password.
+Users sign in with a username and password. The username is stored in the FoodProLive `users.email` field for compatibility. Password hashes are stored on `users.password_hash`, temporary-password state is stored with `users.temporary_password`, and sessions are stored in `auth_tokens`.
 
-The first Admin uses Create first Admin with a full name, username, and password. No setup key or ChatGPT sign-in is required. The first successful submission claims the fixed owner account; the form closes once an Admin credential exists, and concurrent submissions cannot replace it. Later accounts are created by a signed-in Admin. The public login page is reachable without ChatGPT; project data and administration require an app session.
+## Database
 
+The active schema is PostgreSQL only. The migration is [postgres/0001_foodprolive_subset.sql](/Users/abutt/Documents/Codex/recipegenerator/postgres/0001_foodprolive_subset.sql). It intentionally removes the old D1/SQLite JSON record model and does not create `records`, `locations`, `credentials`, `sessions`, or `login_attempts` tables.
 
-Previous personal and site records remain preserved. Admins can move a preserved workspace into a project atomically; duplicate codes abort without overwriting any records. Legacy non-Admin/non-Chef roles are deactivated for admin review. Food Pro CSV headers remain unchanged. Projects may have an optional real Food Pro scope ID/name; otherwise exports use site_scope=all. These export fields do not control app authorization.
+Copied FoodProLive relational tables:
+
+- Core access: `users`, `user_site_access`, `auth_tokens`, `role_profiles`, `role_profile_permissions`
+- Locations/projects: `areas`, `projects`, `warehouses`
+- Inventory/ingredients: `food_categories`, `ingredients`, `ingredient_unit_conversions`, `ingredient_details`, `ingredient_nutrition_profiles`, `ingredient_allergen_tags`, `ingredient_aliases`, `ingredient_stock_summaries`, `warehouse_inventory`, `inventory_lots`
+- Recipes: `recipes`, `recipe_versions`, `recipe_ingredient_lines`
+- Menus: `menu_plans`, `menu_plan_lines`
+
+FoodProLive has many additional modules, such as budgets, uploads, procurement, production events, suppliers, and broader operational documents. They are not copied here because Recipe Studio does not currently have matching screens or flows for them.
 
 ## Current scope
 
-Recipe generation is pattern-based, not powered by an AI service. The app produces CSV downloads; it does not connect directly to Food Pro. Recipe exports use `sub_recipes: []`. Final menu import compatibility depends on the supplied destination template. Costs use SAR and exclude tax, labour, packaging, and overhead. Kitchen teams must review recipes, allergens, and finished yields before production.
+Recipe generation is pattern-based, not powered by an AI service. The app produces CSV downloads; it does not connect directly to Food Pro. Recipe ingredients must be mapped to inventory before saving because FoodProLive’s `recipe_ingredient_lines` requires a real `ingredient_id`. Costs use SAR and exclude tax, labour, packaging, and overhead. Kitchen teams must review recipes, allergens, and finished yields before production.
 
 ## Development
 
-Requires Node.js 22.13 or later and npm. The app uses React, Vinext, and Cloudflare Workers.
+Requires Node.js 22.13 or later, npm, and PostgreSQL.
 
 ```sh
 npm run install:ci
-npm run build
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_old_namora.sql
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0001_special_gladiator.sql
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0002_spotty_jubilee.sql
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0003_free_jazinda.sql
-npm run dev
+export DATABASE_URL="postgres://user:password@host:5432/database"
+npm run build:node
+npm run start:node
 ```
 
-Apply each migration once, in order, to a fresh local database. For local preview, create an ignored .dev.vars file containing STUDIO_OWNER_EMAIL="seedy@sites.test". Use the preview URL printed by the development server. Local preview supplies a development sign-in flow; production uses the Sites authentication boundary. Do not expose the development server publicly.
-
-The `.openai/hosting.json` manifest identifies the existing private Sites deployment and its logical D1 binding. GitHub hosts the source code; pushing here does not automatically deploy the app. Runtime data, dependencies, credentials, and build output are excluded from Git.
+The Node runtime applies `postgres/*.sql` migrations at startup. For Docker, set `APP_ORIGIN` and `DATABASE_URL`.
 
 ## Verification
 
@@ -55,19 +56,12 @@ node scripts/verify-food.mjs
 node scripts/verify-access.mjs
 ```
 
-With the local development server running at `http://127.0.0.1:5173`:
-
-```sh
-node scripts/verify-api.mjs
-```
-
-The API verification creates and removes its own operational records and deactivates its QA projects and chef account in the local preview database. It initializes a local-qa-owner with a test-only password if owner setup is available; use LOCAL_TEST_PASSWORD for an existing test account. It never targets production.
+With the local development server running, `node scripts/verify-api.mjs` exercises the API against the configured PostgreSQL database. Use an isolated database because it creates test users, projects, inventory, recipes, and menus.
 
 ## Main files
 
-- `app/studio.tsx`: application screens and interactions
-- `app/studio.css`: responsive interface styling
-- `app/api/data/route.ts`: authenticated persistence endpoints
-- `lib/food.ts`: recipe patterns, mapping, costing, CSV parsing and export
-- `db/schema.ts` and `drizzle/`: database schema and migrations
-
+- [app/studio.tsx](/Users/abutt/Documents/Codex/recipegenerator/app/studio.tsx): application screens and interactions
+- [app/api/data/route.ts](/Users/abutt/Documents/Codex/recipegenerator/app/api/data/route.ts): authenticated persistence endpoints
+- [lib/data-service.ts](/Users/abutt/Documents/Codex/recipegenerator/lib/data-service.ts): normalized inventory, recipe, and menu persistence
+- [lib/access.ts](/Users/abutt/Documents/Codex/recipegenerator/lib/access.ts): users, roles, and project/warehouse access
+- [db/schema.ts](/Users/abutt/Documents/Codex/recipegenerator/db/schema.ts) and [postgres/](/Users/abutt/Documents/Codex/recipegenerator/postgres): database schema and migration

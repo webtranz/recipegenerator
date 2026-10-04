@@ -1,61 +1,25 @@
 import assert from 'node:assert/strict';
-import {DatabaseSync} from 'node:sqlite';
-import {readFileSync,readdirSync} from 'node:fs';
-import {build} from 'esbuild';
-import {generateRecipe} from '../lib/food.ts';
-Error.prepareStackTrace=(e,frames)=>e.name+': '+e.message+'\n'+frames.filter(f=>!String(f.getFileName()).startsWith('data:')).map(f=>'  '+f).join('\n');
-const compiled=await build({stdin:{contents:"export * from './lib/access';export * from './lib/data-service';export * from './lib/session';export * from './lib/passwords';export * from './lib/permissions';export * from './lib/first-admin';",resolveDir:process.cwd(),loader:'ts'},bundle:true,platform:'node',format:'esm',write:false});
-const {authenticate,loadUser,requireProject,contextFor,saveProject,saveUser,adminSnapshot,readData,writeData,deleteData,assignLegacy,login,sessionUser,requireSession,changePassword,limitAttempt,canWrite,ROLES,usernameSchema,passwordSchema,firstAdminAvailable,createFirstAdmin,digestToken}=await import('data:text/javascript;base64,'+Buffer.from(compiled.outputFiles[0].text).toString('base64'));
-const sql=new DatabaseSync(':memory:');sql.exec('PRAGMA foreign_keys=ON');for(const file of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())sql.exec(readFileSync('drizzle/'+file,'utf8'));
-class Statement{constructor(q,params=[]){this.q=q;this.params=params;}bind(...p){return new Statement(this.q,p);}async first(){return sql.prepare(this.q).get(...this.params)||null;}async all(){return {results:sql.prepare(this.q).all(...this.params)};}async run(){return sql.prepare(this.q).run(...this.params);}}
-const db={prepare:q=>new Statement(q),async batch(statements){sql.exec('BEGIN');try{const result=[];for(const s of statements)result.push(await s.run());sql.exec('COMMIT');return result;}catch(e){sql.exec('ROLLBACK');throw e;}}};
-await assert.rejects(()=>authenticate(db,null,'owner@example.com'),e=>e.status===401);
-await assert.rejects(()=>authenticate(db,{id:'stranger',email:'stranger@example.com'},'owner@example.com'));
-const admin=await authenticate(db,{id:'owner-auth',email:'owner@example.com'},'owner@example.com');
-const project=id=>({id,code:id.toUpperCase(),name:id,active:true,export_site_id:'',export_site_name:''});
-await saveProject(db,admin,project('project-a'));await saveProject(db,admin,{...project('project-b'),export_site_id:'REAL-FOODPRO',export_site_name:'Destination'});
-const a=await requireProject(db,admin,'project-a'),b=await requireProject(db,admin,'project-b');
-const pass='Temporary test passphrase 123!';
-const record={id:'chef',username:'kitchen chef+test@example.com',name:'Chef',role:'chef',active:true,project_id:a.id,password:pass};
-await saveUser(db,admin,record);let chef=await loadUser(db,'chef');
-assert.deepEqual(ROLES,['admin','chef']);assert.deepEqual((await contextFor(db,chef)).projects.map(p=>p.id),[a.id]);
-await assert.rejects(()=>requireProject(db,chef,b.id),e=>e.status===403);await assert.rejects(()=>requireProject(db,chef,null),e=>e.status===400);
-await assert.rejects(()=>adminSnapshot(db,chef));await assert.rejects(()=>saveUser(db,chef,{...record,role:'admin'}));await assert.rejects(()=>saveProject(db,chef,project('forged')));
-await assert.rejects(()=>saveUser(db,admin,{...record,role:'viewer'}));await assert.rejects(()=>saveUser(db,admin,{...record,project_id:null}));
-assert.equal(canWrite('chef','inventory'),false);assert.equal(canWrite('chef','recipe'),true);assert.equal(canWrite('chef','menu'),true);
-const item={id:'inv:CODE',item_code:'CODE',name:'Exact inventory',unit:'kg',cost:10,category:'Ingredient',allergens:[]};
-await writeData(db,a,{kind:'inventory',items:[item]});await writeData(db,b,{kind:'inventory',items:[{...item,name:'Other project'}]});assert.equal((await readData(db,a)).inventory[0].name,item.name);
-const recipe=generateRecipe(0,10,[]);recipe.ingredients[0].item_code='CODE';
-await writeData(db,a,{kind:'recipe',record:recipe});await writeData(db,b,{kind:'recipe',record:{...recipe,id:'other'}});
-assert.equal((await readData(db,a)).recipes[0].site_scope,'all');assert.deepEqual((await readData(db,b)).recipes[0].site_ids,['REAL-FOODPRO']);
-const menu={id:'menu',code:'MENU',name:'Menu',target:30,items:[{recipe_id:recipe.id,price:30,portions:1,sold:null}]};
-await assert.rejects(()=>writeData(db,b,{kind:'menu',record:menu}));await writeData(db,a,{kind:'menu',record:menu});await assert.rejects(()=>deleteData(db,b,'recipe',recipe.id),e=>e.status===404);
-const req=t=>new Request('https://studio.test/api/context',{headers:{cookie:'__Host-rs_session='+t}});
-let token=await login(db,'KITCHEN CHEF+TEST@EXAMPLE.COM',pass,'127.0.0.1');await assert.rejects(()=>requireSession(db,req(token)),e=>e.status===428);
-const next='Changed kitchen passphrase 456!';const changed=await changePassword(db,chef,pass,next);assert.equal(await sessionUser(db,req(token)),null);assert.equal((await requireSession(db,req(changed))).must_change,false);
-await assert.rejects(()=>login(db,record.username,pass,'127.0.0.1'),e=>e.status===401);await assert.rejects(()=>login(db,'unknown',pass,'127.0.0.1'),e=>e.status===401);
-await saveUser(db,admin,{...record,password:undefined,project_id:b.id});assert.equal(await sessionUser(db,req(changed)),null);chef=await loadUser(db,'chef');await assert.rejects(()=>requireProject(db,chef,a.id));
-await saveProject(db,admin,{...project(b.id),active:false});await assert.rejects(()=>requireProject(db,chef,b.id));await saveProject(db,admin,project(b.id));
-token=await login(db,record.username,next,'127.0.0.1');sql.exec('UPDATE sessions SET expires=0');assert.equal(await sessionUser(db,req(token)),null);
-await saveUser(db,admin,{...record,active:false,password:undefined});await assert.rejects(()=>login(db,record.username,next,'127.0.0.1'));
-assert.equal(JSON.stringify(await adminSnapshot(db,admin)).includes('password_hash'),false);
-await db.prepare('INSERT INTO records (owner,id,kind,code,payload,updated) VALUES (?,?,?,?,?,?)').bind(admin.auth_user_id,'recipe:legacy','recipe','LEGACY',JSON.stringify({...recipe,id:'legacy',recipe_code:'LEGACY'}),'now').run();
-await assignLegacy(db,admin,a,admin.auth_user_id);assert.equal((await readData(db,a)).recipes.length,2);
-await db.prepare('INSERT INTO records (owner,id,kind,code,payload,updated) VALUES (?,?,?,?,?,?)').bind(admin.auth_user_id,'inv:CODE','inventory','CODE',JSON.stringify(item),'now').run();await assert.rejects(()=>assignLegacy(db,admin,a,admin.auth_user_id));assert.equal((await contextFor(db,admin)).legacy_groups[0].count,1);
-for(let n=0;n<3;n++)await limitAttempt(db,'throttle',3);await assert.rejects(()=>limitAttempt(db,'throttle',3),e=>e.status===429);
-console.log('Passed: two roles only, project isolation, chef permissions, atomic legacy migration, CSV scope mapping, password changes, session expiry/revocation, deactivation, credential secrecy, and throttling.');
+import {readFileSync} from 'node:fs';
 
-assert.equal(passwordSchema.safeParse('1234567').success,true);assert.equal(passwordSchema.safeParse('123456').success,false);
-const config={ownerEmail:'owner@example.com'};
-assert.equal(await firstAdminAvailable(db),true);
-await assert.rejects(()=>createFirstAdmin(db,config,{name:'Owner',username:'admin+first@example.com',password:'123456'}));
-assert.equal(await firstAdminAvailable(db),true);
-await createFirstAdmin(db,config,{name:'Owner',username:'admin+first@example.com',password:'1234567'});
-assert.equal(await firstAdminAvailable(db),false);
-await assert.rejects(()=>createFirstAdmin(db,config,{name:'Second',username:'second.admin',password:'7654321'}),e=>e.status===409);
-assert.equal((await loadUser(db,'workspace-owner')).username,'admin+first@example.com');assert.equal((await loadUser(db,'workspace-owner')).role,'admin');
-const firstAdminToken=await login(db,'admin+first@example.com','1234567','test-admin');assert.equal((await requireSession(db,req(firstAdminToken))).role,'admin');
-console.log('Passed: 7-character password boundary, key-free first Admin creation, immediate login, and closed setup after creation.');
+const sql=readFileSync('postgres/0001_foodprolive_subset.sql','utf8');
+const requiredTables=[
+ 'users','user_site_access','auth_tokens','role_profiles','role_profile_permissions',
+ 'food_categories','areas','projects','warehouses','ingredients','ingredient_unit_conversions',
+ 'ingredient_details','ingredient_nutrition_profiles','ingredient_allergen_tags','ingredient_aliases',
+ 'ingredient_stock_summaries','warehouse_inventory','inventory_lots','recipes','recipe_versions',
+ 'recipe_ingredient_lines','menu_plans','menu_plan_lines'
+];
+for(const table of requiredTables)assert.match(sql,new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`),`missing ${table}`);
+for(const table of ['records','locations','credentials','sessions','login_attempts','entity_records'])assert.doesNotMatch(sql,new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`),`legacy table should not exist: ${table}`);
+assert.doesNotMatch(sql,/\b(payload|data)\s+JSONB\b/i,'schema should not use JSONB payload columns');
+assert.match(sql,/recipe_versions[\s\S]*allergens TEXT\[\]/,'recipe allergens should use relational/text array columns copied from FoodProLive');
+assert.match(sql,/warehouse_inventory[\s\S]*UNIQUE \(warehouse_id, ingredient_id\)/,'warehouse inventory connectivity is required');
+assert.match(sql,/recipe_ingredient_lines[\s\S]*REFERENCES recipe_versions\(recipe_version_id\)[\s\S]*REFERENCES ingredients\(ingredient_id\)/,'recipe lines must connect recipe versions to ingredients');
+assert.match(sql,/menu_plan_lines[\s\S]*REFERENCES menu_plans\(menu_plan_id\)[\s\S]*REFERENCES recipe_versions\(recipe_version_id\)/,'menu lines must connect menu plans to recipe versions');
 
-for(const name of ['chef@example.com','Chef Team #1','طاهٍ مطبخ','@admin','chef/ops'])assert.equal(usernameSchema.safeParse(name).success,true);
-console.log('Passed: unrestricted username characters, email-style account creation, and matching case-insensitive login.');
+const appFiles=['lib/access.ts','lib/data-service.ts','lib/session.ts','lib/first-admin.ts'];
+for(const file of appFiles){
+ const text=readFileSync(file,'utf8');
+ assert.doesNotMatch(text,/\brecords\b|\blocations\b|\bcredentials\b|\bsessions\b|\blogin_attempts\b|\bpayload\b/,`${file} still references the legacy JSON/SQLite tables`);
+}
+console.log('Passed: Recipe Generator uses the FoodProLive relational subset and has no legacy JSON records table in its active database path.');

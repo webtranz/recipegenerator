@@ -1,6 +1,6 @@
-import {openDatabase} from '../runtime/sqlite.mjs';
+import {openDatabase} from '../runtime/postgres.mjs';
 export const env={
- get DB(){return openDatabase(process.env.DATABASE_PATH||'./data/recipe-studio.sqlite',process.env.MIGRATIONS_DIR||'./drizzle') as unknown as D1Database;},
+ get DB(){return openDatabase({connectionString:process.env.DATABASE_URL,migrationsDirectory:process.env.MIGRATIONS_DIR||'./postgres'}) as unknown as D1Database;},
  get STUDIO_OWNER_EMAIL(){return process.env.STUDIO_OWNER_EMAIL;},
  get APP_ORIGIN(){return process.env.APP_ORIGIN;},
  // Only enable when the reverse proxy overwrites this header and the container
