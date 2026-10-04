@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {generateRecipe} from '../lib/food.ts';
-const origin='http://127.0.0.1:5173';
-const platform=await fetch(origin+'/signin-with-chatgpt?return_to=/',{redirect:'manual'});
-const headers={Cookie:platform.headers.getSetCookie().map(s=>s.split(';')[0]).join('; '),'Content-Type':'application/json',Origin:origin};
+const origin=process.env.TEST_ORIGIN||'http://127.0.0.1:5173';
+assert.ok(['127.0.0.1','localhost','[::1]'].includes(new URL(origin).hostname),'API fixtures must run locally');
+const headers={Cookie:'','Content-Type':'application/json',Origin:origin};
 async function call(method,body,path='/api/data?project=qa-project',h=headers){const r=await fetch(origin+path,{method,headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.text().then(t=>{try{return JSON.parse(t);}catch{return {error:t};}}),response:r};}
 assert.equal((await fetch(origin+'/api/context')).status,401);
 const state=await call('GET',null,'/api/auth');const password=process.env.LOCAL_TEST_PASSWORD||'Recipe Studio LOCAL test password only!';
