@@ -56,15 +56,14 @@ async function seedAdmin(client){
  const fullName=(process.env.SEED_ADMIN_NAME||'Admin').trim()||'Admin';
  const id=(process.env.SEED_ADMIN_ID||`seed-admin-${email.replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}`).slice(0,100);
  await client.query(`INSERT INTO users (
-  id,email,full_name,role,status,password_hash,temporary_password,source_name,created_at,updated_at
- ) VALUES ($1,$2,$3,'admin','active',$4,NULL,'recipegenerator',NOW(),NOW())
+  id,email,full_name,role,status,password_hash,temporary_password,created_at,updated_at
+ ) VALUES ($1,$2,$3,'admin','active',$4,NULL,NOW(),NOW())
  ON CONFLICT (email) DO UPDATE SET
   full_name=EXCLUDED.full_name,
   role='admin',
   status='active',
   password_hash=EXCLUDED.password_hash,
   temporary_password=NULL,
-  source_name=EXCLUDED.source_name,
   updated_at=NOW()`,[id,email,fullName,hashPassword(password)]);
 }
 

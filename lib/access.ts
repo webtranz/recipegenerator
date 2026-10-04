@@ -26,7 +26,7 @@ export async function loadUser(db:D1Database,id:string):Promise<AppUser>{
 // Used only for one-time owner setup at the trusted hosting boundary.
 export async function authenticate(db:D1Database,identity:Identity|null,ownerEmail:string|undefined):Promise<AppUser>{
  if(!identity?.id||!identity.email||!ownerEmail||identity.email.trim().toLowerCase()!==ownerEmail.trim().toLowerCase())throw new AccessError('Use your username and password.',401);
- await db.prepare("INSERT INTO users (id,email,full_name,role,status,password_hash,source_name,updated_at) VALUES ('workspace-owner',?,?,'admin','active',?,'recipegenerator',NOW()) ON CONFLICT (id) DO UPDATE SET email=excluded.email,full_name=excluded.full_name,role='admin',status='active',updated_at=NOW()").bind(identity.email.trim().toLowerCase(),'Workspace owner','scrypt-v1$00000000000000000000000000000000$0000000000000000000000000000000000000000000000000000000000000000').run();
+ await db.prepare("INSERT INTO users (id,email,full_name,role,status,password_hash,updated_at) VALUES ('workspace-owner',?,?,'admin','active',?,NOW()) ON CONFLICT (id) DO UPDATE SET email=excluded.email,full_name=excluded.full_name,role='admin',status='active',updated_at=NOW()").bind(identity.email.trim().toLowerCase(),'Workspace owner','scrypt-v1$00000000000000000000000000000000$0000000000000000000000000000000000000000000000000000000000000000').run();
  return loadUser(db,'workspace-owner');
 }
 export async function requireProject(db:D1Database,user:AppUser,id:string|null):Promise<Project>{
@@ -53,7 +53,7 @@ export async function saveUser(db:D1Database,actor:AppUser,input:unknown){
  const email=r.username.trim().toLowerCase();
  const temp=r.password?'must_change':existing?.temporary_password??null;
  const statements=[
-  db.prepare("INSERT INTO users (id,email,full_name,role,status,site_id,site_name,password_hash,temporary_password,source_name,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,NOW()) ON CONFLICT (id) DO UPDATE SET email=excluded.email,full_name=excluded.full_name,role=excluded.role,status=excluded.status,site_id=excluded.site_id,site_name=excluded.site_name,password_hash=excluded.password_hash,temporary_password=excluded.temporary_password,updated_at=NOW()").bind(r.id,email,r.name,r.role,r.active?'active':'inactive',r.role==='admin'?null:r.project_id,project?.name??null,hashed,temp,SOURCE),
+  db.prepare("INSERT INTO users (id,email,full_name,role,status,site_id,site_name,password_hash,temporary_password,updated_at) VALUES (?,?,?,?,?,?,?,?,?,NOW()) ON CONFLICT (id) DO UPDATE SET email=excluded.email,full_name=excluded.full_name,role=excluded.role,status=excluded.status,site_id=excluded.site_id,site_name=excluded.site_name,password_hash=excluded.password_hash,temporary_password=excluded.temporary_password,updated_at=NOW()").bind(r.id,email,r.name,r.role,r.active?'active':'inactive',r.role==='admin'?null:r.project_id,project?.name??null,hashed,temp),
   db.prepare('DELETE FROM user_site_access WHERE user_id=?').bind(r.id),
   db.prepare('DELETE FROM auth_tokens WHERE user_id=?').bind(r.id),
  ];
