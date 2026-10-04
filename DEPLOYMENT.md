@@ -7,7 +7,7 @@ Recipe Studio runs on Node.js 24 with a persistent SQLite database. The Docker i
 - Repository: `webtranz/recipegenerator`, branch `main`.
 - Build type: **Dockerfile**. Build context: repository root (`.`). Dockerfile: `Dockerfile`.
 - Container port: **3000**. Route your application domain to this port.
-- Environment: `APP_ORIGIN=https://your-recipe-domain.example` (replace with the actual application URL, not the Dokploy dashboard URL). Do not include a path.
+- Recommended environment: `APP_ORIGIN=https://your-recipe-domain.example` (replace with the actual application URL, not the Dokploy dashboard URL). Do not include a path. If this is not set, the app derives the public origin from the reverse proxy `Host` and `X-Forwarded-*` headers.
 - Persistent storage: mount a named volume, such as `recipe-studio-data`, at **`/data`**. Keep this volume when redeploying.
 - Run **one replica**. SQLite storage must not be shared between multiple app instances.
 
@@ -23,7 +23,7 @@ Set `APP_ORIGIN=http://localhost:3000` in a local `.env` file, then run:
 docker compose up --build -d
 ```
 
-The provided Compose file binds port 3000 to loopback. For public hosting, use a reverse proxy and set `APP_ORIGIN` to the exact public HTTPS origin. This setting controls origin validation and secure session cookies behind the proxy. Never expose the internal port directly when relying on trusted proxy headers.
+The provided Compose file binds port 3000 to loopback. For public hosting, use a reverse proxy and set `APP_ORIGIN` to the exact public HTTPS origin when possible. When `APP_ORIGIN` is omitted, the app uses the proxy headers supplied with each request for origin validation and secure session cookies. Never expose the internal port directly when relying on trusted proxy headers.
 
 The default database is `/data/recipe-studio.sqlite`. Named volumes are recommended. If using a host-directory bind mount, give container user UID/GID `1000:1000` write permission. Back up the entire `/data` volume while the app is stopped, and retain it independently of containers. Do not copy only the SQLite file while the application is writing, because WAL files may contain recent changes.
 
