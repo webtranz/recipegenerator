@@ -4,8 +4,8 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {build} from 'esbuild';
 import {generateRecipe} from '../lib/food.ts';
 Error.prepareStackTrace=(e,frames)=>e.name+': '+e.message+'\n'+frames.filter(f=>!String(f.getFileName()).startsWith('data:')).map(f=>'  '+f).join('\n');
-const compiled=await build({stdin:{contents:"export * from './lib/access';export * from './lib/data-service';export * from './lib/session';export * from './lib/passwords';export * from './lib/permissions';",resolveDir:process.cwd(),loader:'ts'},bundle:true,platform:'node',format:'esm',write:false});
-const {authenticate,loadUser,requireProject,contextFor,saveProject,saveUser,adminSnapshot,readData,writeData,deleteData,assignLegacy,login,sessionUser,requireSession,changePassword,limitAttempt,canWrite,ROLES}=await import('data:text/javascript;base64,'+Buffer.from(compiled.outputFiles[0].text).toString('base64'));
+const compiled=await build({stdin:{contents:"export * from './lib/access';export * from './lib/data-service';export * from './lib/session';export * from './lib/passwords';export * from './lib/permissions';export * from './lib/first-admin';",resolveDir:process.cwd(),loader:'ts'},bundle:true,platform:'node',format:'esm',write:false});
+const {authenticate,loadUser,requireProject,contextFor,saveProject,saveUser,adminSnapshot,readData,writeData,deleteData,assignLegacy,login,sessionUser,requireSession,changePassword,limitAttempt,canWrite,ROLES,passwordSchema,firstAdminAvailable,createFirstAdmin,digestToken}=await import('data:text/javascript;base64,'+Buffer.from(compiled.outputFiles[0].text).toString('base64'));
 const sql=new DatabaseSync(':memory:');sql.exec('PRAGMA foreign_keys=ON');for(const file of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())sql.exec(readFileSync('drizzle/'+file,'utf8'));
 class Statement{constructor(q,params=[]){this.q=q;this.params=params;}bind(...p){return new Statement(this.q,p);}async first(){return sql.prepare(this.q).get(...this.params)||null;}async all(){return {results:sql.prepare(this.q).all(...this.params)};}async run(){return sql.prepare(this.q).run(...this.params);}}
 const db={prepare:q=>new Statement(q),async batch(statements){sql.exec('BEGIN');try{const result=[];for(const s of statements)result.push(await s.run());sql.exec('COMMIT');return result;}catch(e){sql.exec('ROLLBACK');throw e;}}};
@@ -44,3 +44,17 @@ await assignLegacy(db,admin,a,admin.auth_user_id);assert.equal((await readData(d
 await db.prepare('INSERT INTO records (owner,id,kind,code,payload,updated) VALUES (?,?,?,?,?,?)').bind(admin.auth_user_id,'inv:CODE','inventory','CODE',JSON.stringify(item),'now').run();await assert.rejects(()=>assignLegacy(db,admin,a,admin.auth_user_id));assert.equal((await contextFor(db,admin)).legacy_groups[0].count,1);
 for(let n=0;n<3;n++)await limitAttempt(db,'throttle',3);await assert.rejects(()=>limitAttempt(db,'throttle',3),e=>e.status===429);
 console.log('Passed: two roles only, project isolation, chef permissions, atomic legacy migration, CSV scope mapping, password changes, session expiry/revocation, deactivation, credential secrecy, and throttling.');
+
+assert.equal(passwordSchema.safeParse('1234567').success,true);assert.equal(passwordSchema.safeParse('123456').success,false);
+const key='a'.repeat(64),config={hash:await digestToken(key),expires:String(Date.now()+60000),ownerEmail:'owner@example.com'};
+assert.equal(await firstAdminAvailable(db,config),true);
+assert.equal(await firstAdminAvailable(db,{...config,expires:'0'}),false);
+await assert.rejects(()=>createFirstAdmin(db,config,{setup_key:'b'.repeat(64),name:'Owner',username:'initial.admin',password:'1234567'}),e=>e.status===403);
+await assert.rejects(()=>createFirstAdmin(db,config,{setup_key:key,name:'Owner',username:'initial.admin',password:'123456'}));
+assert.equal(await firstAdminAvailable(db,config),true);
+await createFirstAdmin(db,config,{setup_key:key,name:'Owner',username:'initial.admin',password:'1234567'});
+assert.equal(await firstAdminAvailable(db,config),false);
+await assert.rejects(()=>createFirstAdmin(db,config,{setup_key:key,name:'Second',username:'second.admin',password:'7654321'}),e=>e.status===409);
+assert.equal((await loadUser(db,'workspace-owner')).username,'initial.admin');assert.equal((await loadUser(db,'workspace-owner')).role,'admin');
+const firstAdminToken=await login(db,'initial.admin','1234567','test-admin');assert.equal((await requireSession(db,req(firstAdminToken))).role,'admin');
+console.log('Passed: 7-character password boundary, setup-key validation/expiry, first Admin creation, immediate login, and closed setup after creation.');
