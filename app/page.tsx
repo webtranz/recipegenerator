@@ -1,4 +1,5 @@
 import Studio from './studio';
-import {requireChatGPTUser} from './chatgpt-auth';
+import {chatGPTSignInPath} from './chatgpt-auth';
+import AuthGate from './auth-gate';
 export const dynamic='force-dynamic';
-export default async function Home(){await requireChatGPTUser('/');return <Studio/>;}
+export default function Home(){return <AuthGate ownerSignInPath={chatGPTSignInPath('/')}><Studio/></AuthGate>;}
