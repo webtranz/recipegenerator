@@ -1,10 +1,9 @@
 import {env} from 'cloudflare:workers';
 import {z} from 'zod';
-import {authenticate,AccessError} from './access';
+import {AccessError} from './access';
 import {requireSession} from './session';
 export function db(){if(!env.DB)throw new Error('Database unavailable');return env.DB;}
 export async function actor(req:Request){return requireSession(db(),req);}
-export async function bootstrapOwner(req:Request){const id=req.headers.get('oai-authenticated-user-id'),email=req.headers.get('oai-authenticated-user-email');const user=await authenticate(db(),id&&email?{id,email}:null,env.STUDIO_OWNER_EMAIL);if(user.id!=='workspace-owner')throw new AccessError('Owner setup is unavailable.');if(await db().prepare('SELECT user_id FROM credentials WHERE user_id=?').bind(user.id).first())throw new AccessError('Owner setup is complete. Use your username and password.',409);return user;}
 export function json(value:unknown,status=200){return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});}
 export function checkOrigin(req:Request){if(req.headers.get('origin')&&req.headers.get('origin')!==new URL(req.url).origin)throw new AccessError('Invalid request origin.');}
 export async function body(req:Request){const raw=await req.text();if(raw.length>1500000)throw new AccessError('The request is too large. Import up to 100 inventory items per batch.',413);return JSON.parse(raw);}

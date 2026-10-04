@@ -46,18 +46,16 @@ for(let n=0;n<3;n++)await limitAttempt(db,'throttle',3);await assert.rejects(()=
 console.log('Passed: two roles only, project isolation, chef permissions, atomic legacy migration, CSV scope mapping, password changes, session expiry/revocation, deactivation, credential secrecy, and throttling.');
 
 assert.equal(passwordSchema.safeParse('1234567').success,true);assert.equal(passwordSchema.safeParse('123456').success,false);
-const key='a'.repeat(64),config={hash:await digestToken(key),expires:String(Date.now()+60000),ownerEmail:'owner@example.com'};
-assert.equal(await firstAdminAvailable(db,config),true);
-assert.equal(await firstAdminAvailable(db,{...config,expires:'0'}),false);
-await assert.rejects(()=>createFirstAdmin(db,config,{setup_key:'b'.repeat(64),name:'Owner',username:'admin+first@example.com',password:'1234567'}),e=>e.status===403);
-await assert.rejects(()=>createFirstAdmin(db,config,{setup_key:key,name:'Owner',username:'admin+first@example.com',password:'123456'}));
-assert.equal(await firstAdminAvailable(db,config),true);
-await createFirstAdmin(db,config,{setup_key:key,name:'Owner',username:'admin+first@example.com',password:'1234567'});
-assert.equal(await firstAdminAvailable(db,config),false);
-await assert.rejects(()=>createFirstAdmin(db,config,{setup_key:key,name:'Second',username:'second.admin',password:'7654321'}),e=>e.status===409);
+const config={ownerEmail:'owner@example.com'};
+assert.equal(await firstAdminAvailable(db),true);
+await assert.rejects(()=>createFirstAdmin(db,config,{name:'Owner',username:'admin+first@example.com',password:'123456'}));
+assert.equal(await firstAdminAvailable(db),true);
+await createFirstAdmin(db,config,{name:'Owner',username:'admin+first@example.com',password:'1234567'});
+assert.equal(await firstAdminAvailable(db),false);
+await assert.rejects(()=>createFirstAdmin(db,config,{name:'Second',username:'second.admin',password:'7654321'}),e=>e.status===409);
 assert.equal((await loadUser(db,'workspace-owner')).username,'admin+first@example.com');assert.equal((await loadUser(db,'workspace-owner')).role,'admin');
 const firstAdminToken=await login(db,'admin+first@example.com','1234567','test-admin');assert.equal((await requireSession(db,req(firstAdminToken))).role,'admin');
-console.log('Passed: 7-character password boundary, setup-key validation/expiry, first Admin creation, immediate login, and closed setup after creation.');
+console.log('Passed: 7-character password boundary, key-free first Admin creation, immediate login, and closed setup after creation.');
 
 for(const name of ['chef@example.com','Chef Team #1','طاهٍ مطبخ','@admin','chef/ops'])assert.equal(usernameSchema.safeParse(name).success,true);
 console.log('Passed: unrestricted username characters, email-style account creation, and matching case-insensitive login.');

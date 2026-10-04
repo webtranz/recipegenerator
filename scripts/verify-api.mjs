@@ -6,7 +6,7 @@ const headers={Cookie:platform.headers.getSetCookie().map(s=>s.split(';')[0]).jo
 async function call(method,body,path='/api/data?project=qa-project',h=headers){const r=await fetch(origin+path,{method,headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.text().then(t=>{try{return JSON.parse(t);}catch{return {error:t};}}),response:r};}
 assert.equal((await fetch(origin+'/api/context')).status,401);
 const state=await call('GET',null,'/api/auth');const password=process.env.LOCAL_TEST_PASSWORD||'Recipe Studio LOCAL test password only!';
-const owner=await call('POST',{action:state.data.owner_setup?'owner_setup':'login',username:'local-qa-owner',password},'/api/auth');assert.equal(owner.status,200);
+const owner=await call('POST',{action:state.data.first_admin_available?'first_admin':'login',username:'local-qa-owner',name:'Local test owner',password},'/api/auth');assert.equal(owner.status,200);
 headers.Cookie+='; '+owner.response.headers.getSetCookie().map(s=>s.split(';')[0]).join('; ');
 assert.match(owner.response.headers.get('set-cookie'),/HttpOnly/);assert.match(owner.response.headers.get('set-cookie'),/SameSite=Strict/);
 assert.equal((await call('POST',{action:'logout'},'/api/auth',{...headers,Origin:'https://untrusted.test'})).status,403);
